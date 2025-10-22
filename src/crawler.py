@@ -16,6 +16,7 @@ from download_utils import download_image, fetch_page
 from html_parsing import parse_html_for_links_and_text, parse_sitemap_xml
 from io_helpers import make_csv_writer, save_binary, save_text
 from limiter import DomainLimiter
+from topic_detect import classify_topic
 from url_utils import domain_of
 from utils import safe_filename, ensure_dirs, compute_content_hash
 
@@ -55,7 +56,7 @@ def threaded_crawl_enhanced(start_url, output_base, max_pages=200, max_depth=2, 
     dirs = ensure_dirs(output_base)
     urls_csv = os.path.join(dirs["urls"], "urls.csv")
     images_csv = os.path.join(dirs["images"], "manifest.csv")
-    write_url_row, close_urls = make_csv_writer(urls_csv, ["url", "status", "depth", "parent"])
+    write_url_row, close_urls = make_csv_writer(urls_csv, ['url', 'status', 'depth', 'parent', 'topic'])
     write_image_row, close_images = make_csv_writer(images_csv, ["image_file", "image_url", "page_url", "size_bytes"])    
 
     session = requests.Session()
@@ -165,7 +166,10 @@ def threaded_crawl_enhanced(start_url, output_base, max_pages=200, max_depth=2, 
             dl = get_domain_limiter_for(url)
             status, ctype, text = fetch_page(session, url, dl)
             visited.add(url)
-            write_url_row([url, status, depth, parent or ""])
+            topic = classify_topic(text)
+
+
+            write_url_row([url, status, depth, parent or "", topic])
             if db:
                 db.add_page(url, status=status, depth=depth, parent=parent or '', visited=1)
                 db.mark_visited(url, status)
