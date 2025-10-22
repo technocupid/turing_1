@@ -22,3 +22,15 @@ def ensure_dirs(base: str):
     os.makedirs(texts, exist_ok=True)
     os.makedirs(images, exist_ok=True)
     return {"base": base, "urls": urls, "texts": texts, "images": images}
+
+def compute_content_hash(text: str) -> str:
+    """
+    Compute a stable fingerprint for page content.
+    Normalizes whitespace and lowercases to reduce trivial differences.
+    Returns hex SHA256 digest string.
+    """
+    if not text:
+        return ''
+    # normalize whitespace and lower-case (you may adjust normalization)
+    norm = ' '.join(text.split()).strip().lower()
+    return hashlib.sha256(norm.encode('utf-8')).hexdigest()

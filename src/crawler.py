@@ -17,7 +17,7 @@ from html_parsing import parse_html_for_links_and_text, parse_sitemap_xml
 from io_helpers import make_csv_writer, save_binary, save_text
 from limiter import DomainLimiter
 from url_utils import domain_of
-from utils import safe_filename, ensure_dirs
+from utils import safe_filename, ensure_dirs, compute_content_hash
 
 
 # Global shutdown event set by signal handler
@@ -173,25 +173,41 @@ def threaded_crawl_enhanced(start_url, output_base, max_pages=200, max_depth=2, 
             new_links = []
             if text:
                 visible_text, links, images = parse_html_for_links_and_text(text, url)
-                fname = safe_filename(url)
-                textpath = os.path.join(dirs['texts'], fname)
-                save_text(textpath, visible_text)
+                content_hash = compute_content_hash(visible_text)
+                is_dup = False
+                canonical_url = ''
 
-                # enqueue image downloads to background executor
-                for img in images:
-                    if shutdown_event.is_set():
-                        logging.debug("Shutdown requested: stopping image enqueue")
-                        break
-                    if not img:
-                        continue
-                    if (not allow_external) and domain_of(img) != domain_of(url):
-                        continue
-                    if db:
-                        db.add_image_manifest('', img, url, 0)
-                    try:
-                        submit_image_download(img, url)
-                    except Exception:
-                        logging.exception("Failed to submit image job: %s", img)
+                if db and content_hash:
+                    if db.has_content_hash(content_hash):
+                        canonical_url = db.get_canonical_url_for_hash(content_hash)
+                        logging.info("Duplicate content detected for %s (same as %s) - skipping save", url, canonical_url)
+                        db.mark_page_duplicate(url, content_hash, canonical_url)
+                        is_dup = True
+                    else:
+                        db.register_content_hash(content_hash, url)
+
+                # If not duplicate, save and process images
+                if not is_dup:
+                    fname = safe_filename(url)
+                    textpath = os.path.join(dirs['texts'], fname)
+                    save_text(textpath, visible_text)
+
+                    for img in images:
+                        if shutdown_event.is_set():
+                            break
+                        if not img:
+                            continue
+                        if (not allow_external) and domain_of(img) != domain_of(url):
+                            continue
+                        if db:
+                            db.add_image_manifest('', img, url, 0)
+                        try:
+                            submit_image_download(img, url)
+                        except Exception:
+                            logging.exception("Failed to submit image job: %s", img)
+                else:
+                    # Optional: mark duplicates differently in logs
+                    logging.debug("Skipped saving duplicate page %s", url)
 
                 # collect new links
                 for link in links:

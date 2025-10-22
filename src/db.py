@@ -11,6 +11,7 @@ class CrawlDB:
 
     def _init_tables(self):
         cur = self.conn.cursor()
+        # pages: added content_hash, is_duplicate, duplicate_of
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS pages (
@@ -18,10 +19,14 @@ class CrawlDB:
                 status TEXT,
                 depth INTEGER,
                 parent TEXT,
-                visited INTEGER DEFAULT 0
+                visited INTEGER DEFAULT 0,
+                content_hash TEXT,
+                is_duplicate INTEGER DEFAULT 0,
+                duplicate_of TEXT DEFAULT ''
             )
             """
         )
+        # frontier unchanged
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS frontier (
@@ -31,6 +36,7 @@ class CrawlDB:
             )
             """
         )
+        # images unchanged
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS images (
@@ -38,6 +44,15 @@ class CrawlDB:
                 image_url TEXT PRIMARY KEY,
                 page_url TEXT,
                 size_bytes INTEGER
+            )
+            """
+        )
+        # content map: one canonical_url per content_hash
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS content_map (
+                content_hash TEXT PRIMARY KEY,
+                canonical_url TEXT
             )
             """
         )
@@ -105,3 +120,41 @@ class CrawlDB:
             self.conn.close()
         except Exception:
             pass
+
+
+    def has_content_hash(self, content_hash: str) -> bool:
+        with self.lock:
+            cur = self.conn.cursor()
+            cur.execute("SELECT 1 FROM content_map WHERE content_hash=? LIMIT 1", (content_hash,))
+            return cur.fetchone() is not None
+
+    def get_canonical_url_for_hash(self, content_hash: str) -> str:
+        with self.lock:
+            cur = self.conn.cursor()
+            cur.execute("SELECT canonical_url FROM content_map WHERE content_hash=? LIMIT 1", (content_hash,))
+            r = cur.fetchone()
+            return r[0] if r else ''
+
+    def register_content_hash(self, content_hash: str, canonical_url: str):
+        with self.lock:
+            cur = self.conn.cursor()
+            try:
+                cur.execute("INSERT OR REPLACE INTO content_map(content_hash, canonical_url) VALUES(?,?)",
+                            (content_hash, canonical_url))
+                # update pages table for canonical_url if present
+                cur.execute("UPDATE pages SET content_hash=? WHERE url=?", (content_hash, canonical_url))
+                self.conn.commit()
+            except Exception:
+                logging.exception("Failed to register content hash: %s", content_hash)
+
+    def mark_page_duplicate(self, url: str, content_hash: str, canonical_url: str):
+        with self.lock:
+            cur = self.conn.cursor()
+            try:
+                cur.execute(
+                    "UPDATE pages SET content_hash=?, is_duplicate=1, duplicate_of=? WHERE url=?",
+                    (content_hash, canonical_url, url),
+                )
+                self.conn.commit()
+            except Exception:
+                logging.exception("Failed to mark page duplicate: %s", url)

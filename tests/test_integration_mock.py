@@ -27,7 +27,6 @@ def test_run_small_crawl(tmp_path, monkeypatch):
             return DummyResp(url)
 
     # monkeypatch requests.Session to return our DummySession
-    # monkeypatch.setattr('scraper_threaded_enhanced.requests.Session', lambda: DummySession())
     monkeypatch.setattr('crawler.requests.Session', lambda: DummySession())
 
     out = tmp_path / 'data'
