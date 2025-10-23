@@ -346,4 +346,20 @@ def threaded_crawl_enhanced(start_url, output_base, max_pages=200, max_depth=2, 
         except Exception:
             pass
 
+        # dump domain health to JSON
+        try:
+            health = {}
+            for d, dl in domain_cache.items():
+                try:
+                    health[d] = dl.get_health()
+                except Exception:
+                    health[d] = {"error": "failed to collect"}
+            import json
+            outpath = os.path.join(output_base, "domain_health.json")
+            with open(outpath, "w", encoding="utf-8") as f:
+                json.dump(health, f, ensure_ascii=False, indent=2)
+            logging.info("Wrote domain health to %s", outpath)
+        except Exception:
+            logging.exception("Failed to write domain health")
+
         logging.info("Crawl finished. Processed %d pages. Data in %s", len(visited), output_base)
